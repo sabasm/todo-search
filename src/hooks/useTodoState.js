@@ -1,55 +1,68 @@
-'use client';
+// src/hooks/useTodoState.js
+"use client";
+import { useState, useCallback } from "react";
+import useSWR from "swr";
 
-import { useState, useCallback } from 'react';
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export function useTodoState() {
-  const [tasks, setTasks] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [newTaskText, setNewTaskText] = useState('');
+  const { data, mutate } = useSWR("/api/todos", fetcher);
+  const tasks = Array.isArray(data) ? data : [];
 
-  const addTask = useCallback(() => {
+  const [newTaskText, setNewTaskText] = useState("");
+
+  const addTask = useCallback(async () => {
     if (!newTaskText.trim()) return;
-    const newTask = {
-      id: Date.now(),
-      text: newTaskText,
-      completed: false,
-    };
-    setTasks((prevTasks) => [...prevTasks, newTask]);
-    setNewTaskText('');
-  }, [newTaskText]);
+    const res = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: newTaskText }),
+    });
+    if (res.ok) {
+      await mutate();
+      setNewTaskText("");
+    }
+  }, [newTaskText, mutate]);
 
-  const deleteTask = useCallback((id) => {
-    setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
-  }, []);
+  const deleteTask = useCallback(async (id) => {
+    const res = await fetch(`/api/todos/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      await mutate();
+    }
+  }, [mutate]);
 
-  const toggleTask = useCallback((id) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
-    );
-  }, []);
-
-  const deleteCompletedTasks = useCallback(() => {
-    setTasks((prevTasks) => prevTasks.filter((task) => !task.completed));
-  }, []);
-
-  const filteredTasks = tasks.filter((task) =>
-    task.text.toLowerCase().includes(searchQuery.toLowerCase())
+  const toggleTask = useCallback(
+    async (id) => {
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      const res = await fetch(`/api/todos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !task.completed }),
+      });
+      if (res.ok) {
+        await mutate();
+      }
+    },
+    [tasks, mutate]
   );
+
+  const deleteCompletedTasks = useCallback(async () => {
+    for (const task of tasks.filter((t) => t.completed)) {
+      await fetch(`/api/todos/${task.id}`, { method: "DELETE" });
+    }
+    await mutate();
+  }, [tasks, mutate]);
 
   const totalTasks = tasks.length;
   const achievedTasks = tasks.filter((task) => task.completed).length;
 
   return {
     tasks,
-    filteredTasks,
     newTaskText,
-    searchQuery,
     totalTasks,
     achievedTasks,
     setNewTaskText,
-    setSearchQuery,
     addTask,
     deleteTask,
     toggleTask,
